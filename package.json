@@ -1,0 +1,27 @@
+{
+  "name": "ps88samples",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b && rollup -c",
+    "fmt": "prettier --write ./src ./lib",
+    "lint": "eslint .",
+    "update": "ncu -u && npm install",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.37.0",
+    "@rollup/plugin-node-resolve": "^16.0.2",
+    "@rollup/plugin-typescript": "^12.1.4",
+    "eslint": "^9.37.0",
+    "npm-check-updates": "^18.3.0",
+    "prettier": "^3.6.2",
+    "ps88web": "github:wakewakame/ps88web",
+    "rollup": "^4.52.4",
+    "tslib": "^2.8.1",
+    "typescript": "~5.9.2",
+    "typescript-eslint": "^8.45.0",
+    "vitest": "^3.2.4"
+  }
+}
