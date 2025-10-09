@@ -4,11 +4,13 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "dev": "rollup -c -w",
     "build": "tsc -b && rollup -c",
     "fmt": "prettier --write ./src ./lib",
     "lint": "eslint .",
     "update": "ncu -u && npm install",
-    "test": "vitest run"
+    "test": "vitest run",
+    "bench": "vitest bench --run"
   },
   "devDependencies": {
     "@eslint/js": "^9.37.0",
