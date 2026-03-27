@@ -1,27 +1,61 @@
-let time = 0;
+import * as midiManager from 'midi-file';
+
+const mid = 'TVRoZAAAAAYAAAABA8BNVHJrAAABmQCQTH+HQIBMAACQQ3+DYIBDAACQTH+DYIBMAACQSn+DYIBKAACQSH+DYIBIAACQR3+DYIBHAACQSH+DYIBIAACQTX+HQIBNAACQTX+HQIBNAACQTX+HQIBNAACQQ3+HQIBDAACQTH+HQIBMAACQRX+DYIBFAACQTH+DYIBMAACQSn+DYIBKAACQSH+DYIBIAACQR3+DYIBHAACQSH+DYIBIAACQSn+HQIBKAACQSn+HQIBKAACQSn+LIIBKAACQS3+DYIBLAACQTH+HQIBMAACQQ3+DYIBDAACQTH+DYIBMAACQSn+DYIBKAACQSH+DYIBIAACQR3+DYIBHAACQSH+DYIBIAACQUX+HQIBRAACQUX+HQIBRAACQUX+HQIBRAACQT3+DYIBPAACQTX+DYIBNAACQTH+HQIBMAACQSn+DYIBKAACQSH+DYIBIAACQRX+HQIBFAACQR3+HQIBHAACQSH+DYIBIAACQQ3+DYIBDAACQQX+DYIBBAACQQ3+DYIBDAACQQH+HQIBAAACQQ3+HQIBDAAD/LwA=';
+const midiPlayer = (data: Uint8Array) => {
+  const midiData = midiManager.parseMidi(data);
+  console.log(midiData);
+  let tempo = 120;
+  let offsetTick = 0;
+  let index = 0;
+  return (durTick: number, sampleRate: number) => {
+    const events = [];
+    let tick = 0;
+    index = index % midiData.tracks[0].length;
+    while (index < midiData.tracks[0].length) {
+      const event = midiData.tracks[0][index];
+      const deltaTick = (sampleRate * event.deltaTime * 60) / (midiData.header.ticksPerBeat! * tempo);
+      tick += deltaTick - offsetTick;
+      if (tick > durTick) {
+        offsetTick += durTick;
+        break;
+      }
+      offsetTick = 0;
+      index += 1;
+      if (event.type === 'setTempo') {
+        tempo = 60000000 / event.microsecondsPerBeat;
+      }
+      if (event.type === 'noteOn' || event.type === 'noteOff') {
+        events.push({
+          timing: tick,
+          type: event.type === 'noteOn' ? 'NoteOn' : 'NoteOff',
+          note: event.noteNumber,
+          velocity: event.velocity / 127,
+        });
+      }
+    }
+    return events;
+  };
+};
+const player = midiPlayer((Uint8Array as any).fromBase64(mid));
+
+let r = 0;
 let buffer1: number[] = [];  // ピッチ描画用の配列
 let buffer2: number[] = [];  // 音量描画用の配列
 
-// TODO:
-// - [x] ハードコードされた MIDI を正弦波で再生できるようにする
-// - [ ] 適当な MIDI をハードコードする (愛の挨拶とか)
-// - [ ] MIDI をボーカルやトランペットのような雰囲気に近づけるように音量・ピッチの抑揚を変化させる
-// - [x] 音量・ピッチのグラフを描画する
-// - [ ] 音色を正弦波意外にもプログラマブルに変えられるようにする
-
-const pressedNote = (time: number): number => {
-  const midi = [69 - 12, 69, 69 + 12];
-  return midi[Math.floor(time) % midi.length];
-};
-
 const toVoicyNote = () => {
-  // ここに副作用を書く
-  // MEMO:
-  // - 未来の note を見てから現在の抑揚を計算したいため、ここでは数秒の遅延を許容し、数秒分の note をバッファリングする
-  // - note が変化する直前と直後でピッチを落としたり音量を落としたりする
-  // - 特に note が変化した直後は目標となる音程に近づける際に揺らぎが発生するはずなので、それをうまく表現したい
-  return (note: number): [number, number] => {
-    const velocity = 1;
+  let note = 69;
+  let noteV = 0;
+  let velocity = 0;
+  let velocityV = 0;
+  return (targetNote: number, targetVelocity: number): [number, number] => {
+    const a = 0.000007;
+    const b = 0.997;
+    noteV += (targetNote - note) * a;
+    note += noteV;
+    noteV *= b;
+    velocityV += (targetVelocity - velocity) * a;
+    velocity += velocityV;
+    velocityV *= b;
     return [note, velocity];
   };
 };
@@ -31,21 +65,37 @@ const noteToPitch = (note: number): number => {
   return noteToFreq(note);
 };
 
-const pitchToWave = (freq: number) => {
-  const wave = Math.sin(time * freq * 2 * Math.PI);
+const pitchToWave = (r: number) => {
+  const wave = Math.sin(r) * 0.01;
   return wave;
 };
 
 const voice = toVoicyNote();
+let note = 0;
+let velocity = 0;
 ps88.audio((ctx) => {
   const length = ctx.audio[0]?.length ?? 0;
-  const noteAndVelocities = [...Array(length)].map(() => {
-    const noteAndVelocity = voice(pressedNote(time));
-    time += 1 / ctx.sampleRate;
+
+  const events = player(length, ctx.sampleRate);
+  //const events = ctx.midi;
+
+  const noteAndVelocities = [...Array(length)].map((_, i) => {
+    for (let event of events) {
+      if (event.type === 'NoteOn' && event.timing <= i) {
+        note = event.note;
+        velocity = event.velocity;
+      }
+      if (event.type === 'NoteOff' && event.note === note && event.timing <= i) {
+        note = note - 12;
+        velocity = 0;
+      }
+    }
+    const noteAndVelocity = voice(note, velocity);
     return noteAndVelocity;
   });
   for (let i = 0; i < length; i++) {
-    const wave = pitchToWave(noteToPitch(noteAndVelocities[i][0])) * noteAndVelocities[i][1];
+    r += 2 * Math.PI * noteToPitch(noteAndVelocities[i][0]) / ctx.sampleRate;
+    const wave = pitchToWave(r) * noteAndVelocities[i][1];
     for (let ch of ctx.audio) {
       ch[i] = wave;
     }
@@ -53,15 +103,14 @@ ps88.audio((ctx) => {
 
   // 描画用にバッファリング
   if (ctx.audio.length > 0) {
-    buffer1 = buffer1.concat([...noteAndVelocities.map(n => n[0])]).slice(-128);
-    buffer2 = buffer2.concat([...noteAndVelocities.map(n => n[1])]).slice(-128);
+    buffer1 = buffer1.concat([...noteAndVelocities.map(n => n[0])]).slice(-ctx.sampleRate * 5);
+    buffer2 = buffer2.concat([...noteAndVelocities.map(n => n[1])]).slice(-ctx.sampleRate * 5);
   }
 });
 
 ps88.gui((ctx) => {
   try {
     // 波形の描画
-    const wave: [number, number][] = [];
     for (let x = 0; x <= ctx.w; x++) {
       const i = ((buffer1.length - 2) * x) / ctx.w;
       const i1 = Math.max(Math.floor(i), 0);
@@ -70,11 +119,18 @@ ps88.gui((ctx) => {
       const v1 = buffer1[i1] * (1 - p) + buffer1[i2] * p;
       const minMax = [69-24, 69+24];
       const v2 = (v1 - minMax[0]) / (minMax[1] - minMax[0]);
+      const v3 = (buffer2[i1] * (1 - p) + buffer2[i2] * p) * 5;
       const y = (1 - v2) * ctx.h;
-      wave.push([x, y - buffer2[i1] * 10]);
-      wave.push([x, y + buffer2[i1] * 10]);
+      ctx.addPolygon(
+        [
+          [x + 0, y - buffer2[i1] * v3],
+          [x + 0, y + buffer2[i1] * v3],
+          [x + 1, y + buffer2[i1] * v3],
+          [x + 1, y - buffer2[i1] * v3],
+        ],
+        { fill: 0xffffffff },
+      );
     }
-    ctx.addPolygon(wave, { stroke: 0xffffffff, strokeWidth: 1 });
   } catch (e) {
     console.error(e);
   }
